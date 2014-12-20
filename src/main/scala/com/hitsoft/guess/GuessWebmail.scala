@@ -1,16 +1,14 @@
 package com.hitsoft.guess
 
-import java.util
-import java.util.{TimerTask, Timer}
+import java.util.{Timer, TimerTask}
 import javax.naming.NamingException
 import javax.naming.directory.{Attribute, InitialDirContext}
 
+import com.github.nscala_time.time.Imports._
 import com.hitsoft.guess.GuessWebmail._
 import org.joda.time.DateTimeConstants
 
 import scala.collection.mutable
-
-import com.github.nscala_time.time.Imports._
 
 /**
  * User: smeagol
