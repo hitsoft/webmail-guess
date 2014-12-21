@@ -4,9 +4,7 @@ import java.util.{Timer, TimerTask}
 import javax.naming.NamingException
 import javax.naming.directory.{Attribute, InitialDirContext}
 
-import com.github.nscala_time.time.Imports._
 import com.hitsoft.guess.GuessWebmail._
-import org.joda.time.DateTimeConstants
 
 import scala.collection.mutable
 
@@ -18,38 +16,13 @@ import scala.collection.mutable
 
 class GuessWebmail {
 
-  private class ExpireDnsTask extends TimerTask {
-    def run() {
-      try {
-        this.synchronized {
-          val expired = dns.expire.filter(item => item._1.isBeforeNow)
-          expired.keys.foreach(dns.expire.remove)
-          for (domain <- expired.values.flatten) {
-            dns.domainHosts.getOrElse(domain, Set()).foreach(dns.hostIps.remove)
-            dns.domainHosts.remove(domain)
-          }
-        }
-      } catch {
-        case e: Exception =>
-      }
-    }
-  }
-
-  private val expireTimer = {
-    val timer = new Timer
-    timer.schedule(new ExpireDnsTask(), 0, DateTimeConstants.MILLIS_PER_MINUTE)
-    timer
-  }
-
-  private object dns {
-    val expire = mutable.Map.empty[DateTime, mutable.Set[String]]
-
+  private[guess] object dns {
     val serverDomains = mutable.Map.empty[String, mutable.Set[String]]
     val domainHosts = mutable.Map.empty[String, mutable.Set[String]]
     val hostIps = mutable.Map.empty[String, mutable.Set[String]]
   }
 
-  private object lookupServerBy {
+  private[guess] object lookupServerBy {
     val domain = mutable.Map.empty[String, String]
     val mx = mutable.Map.empty[String, String]
     val ip = mutable.Map.empty[String, String]
@@ -62,6 +35,7 @@ class GuessWebmail {
    */
   def add(server: Server): GuessWebmail = this.synchronized {
     dns.serverDomains.getOrElseUpdate(server.url.toLowerCase, mutable.Set.empty[String]) ++= server.domains
+    server.domains.foreach(saveResolvedDomain(_, server.url))
     this
   }
 
@@ -91,14 +65,14 @@ class GuessWebmail {
    */
   def add(url: String, domain: String): GuessWebmail = add(url, Seq(domain))
 
-  private def stripLastDot(value: String): String = {
+  private[guess] def stripLastDot(value: String): String = {
     if (value.endsWith("."))
       value.substring(0, value.length - 1)
     else
       ""
   }
 
-  private def resolveMx(domain: String): List[String] = lookupDns(domain, "MX").map(row => {
+  private[guess] def resolveMx(domain: String): List[String] = resolveDNS(domain, "MX").map(row => {
     val parts = row.split(" ")
     if (parts.length == 1)
       parts(0)
@@ -106,17 +80,17 @@ class GuessWebmail {
       parts(1)
   }).map(stripLastDot)
 
-  private def resolveCname(host: String): List[String] = {
-    var result = lookupDns(host, "CNAME").map(stripLastDot)
+  private[guess] def resolveCname(host: String): List[String] = {
+    var result = resolveDNS(host, "CNAME").map(stripLastDot)
     for (h <- result.toSeq) {
       result = result ++ resolveCname(h)
     }
     result.distinct
   }
 
-  private def resolveIP(host: String): List[String] = lookupDns(host, "A")
+  private[guess] def resolveIP(host: String): List[String] = resolveDNS(host, "A")
 
-  private def lookupDns(query: String, kind: String): List[String] = {
+  private[guess] def resolveDNS(query: String, kind: String): List[String] = {
     val attributes = try {
       new InitialDirContext().getAttributes(s"dns:/$query", Array(kind))
     } catch {
@@ -133,7 +107,7 @@ class GuessWebmail {
     list map (x => x.get.toString)
   }
 
-  private def resolveMxHosts(domain: String): List[String] = {
+  private[guess] def resolveMxHosts(domain: String): List[String] = {
     var hosts = resolveMx(domain)
     for (host <- hosts.toSeq) {
       hosts = hosts ++ resolveCname(host)
@@ -141,39 +115,63 @@ class GuessWebmail {
     hosts.distinct
   }
 
-  private def refreshDomainDnsCache(domain: String): Unit = {
-    if (!dns.domainHosts.contains(domain)) {
-      val newHosts = resolveMxHosts(domain)
-      val hosts = this.synchronized {
-        dns.domainHosts.getOrElse(domain, mutable.Set.empty[String]) ++= newHosts
-      }
-      for (host <- hosts) {
-        val ips = resolveIP(host)
-        this.synchronized {
-          dns.hostIps.getOrElse(host, mutable.Set.empty[String]) ++= ips
-        }
-      }
+  private[guess] def refreshDomainDnsCache(domain: String): Unit = {
+    val newHosts = resolveMxHosts(domain)
+    val hosts = this.synchronized {
+      dns.domainHosts.getOrElseUpdate(domain, mutable.Set.empty[String]) ++= newHosts
+    }
+    for (host <- hosts) {
+      val ips = resolveIP(host)
       this.synchronized {
-        val urls = lookupServerBy.mx.filter(row => hosts.contains(row._1)).values.toSet
-        if (urls.size == 1) {
-          val url = urls.head
-          lookupServerBy.domain.put(domain, url)
-          hosts.foreach(lookupServerBy.mx.put(_, url))
-          val ips = dns.hostIps.filter(row => hosts.contains(row._1)).values.flatten.toSet
-          ips.foreach(lookupServerBy.ip.put(_, url))
-        }
+        dns.hostIps.getOrElseUpdate(host, mutable.Set.empty[String]) ++= ips
+      }
+    }
+    this.synchronized {
+      val urls = lookupServerBy.mx.filter(row => hosts.contains(row._1)).values.toSet
+      if (urls.size == 1) {
+        saveResolvedDomain(domain, urls.head)
       }
     }
   }
 
   /**
-   * Check the list of specified webmails agains DNS to resolve it's mx records. This should be called at least once after all webmails specified or scheduled with {@link com.hitsoft.webmail_guess.WebmailGuess#schedule schedule} method.
+   * Check the list of specified webmails agains DNS to resolve it's mx records. This should be called at least once after all webmails specified or scheduled with {@link com.hitsoft.guess.GuessWebmail#schedule schedule} method.
    * @return GuessWebmail object for chaining
    */
   def refreshWebmailDnsCache(): GuessWebmail = {
-    val domains = dns.serverDomains.values.flatten.toSet diff dns.domainHosts.keySet
+    val domains = dns.serverDomains.values.flatten.toSet
     domains.foreach(refreshDomainDnsCache)
+    invalidateCaches()
     this
+  }
+
+  private[guess] def saveResolvedDomain(domain: String, url: String): Unit = {
+    lookupServerBy.domain.put(domain, url)
+    val hosts = dns.domainHosts.getOrElse(domain, Set()).toSeq
+    for ((host, ips) <- dns.hostIps.filterKeys(hosts.contains)) {
+      lookupServerBy.mx.put(host, url)
+      ips.foreach(lookupServerBy.ip.put(_, url))
+    }
+  }
+
+  private[guess] def invalidateCaches(): Unit = {
+    for ((url, domains) <- dns.serverDomains) {
+      domains.foreach(domain => this.synchronized {
+        saveResolvedDomain(domain, url)
+      })
+    }
+    val domains = dns.domainHosts.keySet diff dns.serverDomains.values.flatten.toSet
+    for (domain <- domains) {
+      lookupServerByMx(domain).orElse(
+        lookupServerByIp(domain)
+      ) match {
+        case Some(url) =>
+          this.synchronized {
+            saveResolvedDomain(domain, url)
+          }
+        case None =>
+      }
+    }
   }
 
   /**
@@ -182,19 +180,18 @@ class GuessWebmail {
    * @return
    */
   def loadWebmailDnsCache(data: WebmailDnsCache) = this.synchronized {
-    val expires = dns.expire.getOrElseUpdate(DateTime.now.plusMinutes(10), mutable.Set.empty[String])
-    for (server <- data) {
-      val domains = dns.serverDomains.getOrElse(server._1, mutable.Set.empty[String])
-      for (domain <- server._2) {
-        domains.add(domain._1)
-        expires.add(domain._1)
-        val hosts = dns.domainHosts.getOrElse(domain._1, mutable.Set.empty[String])
-        for (host <- domain._2) {
-          hosts.add(host._1)
-          dns.hostIps.getOrElse(host._1, mutable.Set.empty[String]) ++= host._2
+    for ((dataUrl, dataDomains) <- data) {
+      val domains = dns.serverDomains.getOrElseUpdate(dataUrl, mutable.Set.empty[String])
+      for ((dataDomain, dataHosts) <- dataDomains) {
+        domains.add(dataDomain)
+        val hosts = dns.domainHosts.getOrElseUpdate(dataDomain, mutable.Set.empty[String])
+        for ((dataHost, dataIps) <- dataHosts) {
+          hosts.add(dataHost)
+          dns.hostIps.getOrElseUpdate(dataHost, mutable.Set.empty[String]) ++= dataIps
         }
       }
     }
+    invalidateCaches()
     this
   }
 
@@ -218,15 +215,14 @@ class GuessWebmail {
    * @return
    */
   def loadDomainDnsCache(data: DomainDnsCache) = this.synchronized {
-    val expires = dns.expire.getOrElseUpdate(DateTime.now.plusMinutes(10), mutable.Set.empty[String])
-    for (domain <- data) {
-      expires.add(domain._1)
-      val hosts = dns.domainHosts.getOrElse(domain._1, mutable.Set.empty[String])
-      for (host <- domain._2) {
-        hosts.add(host._1)
-        dns.hostIps.getOrElse(host._1, mutable.Set.empty[String]) ++= host._2
+    for ((dataDomain, dataHosts) <- data) {
+      val hosts = dns.domainHosts.getOrElseUpdate(dataDomain, mutable.Set.empty[String])
+      for ((dataHost, dataIps) <- dataHosts) {
+        hosts.add(dataHost)
+        dns.hostIps.getOrElseUpdate(dataHost, mutable.Set.empty[String]) ++= dataIps
       }
     }
+    invalidateCaches()
     this
   }
 
@@ -239,7 +235,7 @@ class GuessWebmail {
     ).toMap[String, HostCache]
   }
 
-  private class RefreshDnsTask extends TimerTask {
+  private[guess] class RefreshDnsTask extends TimerTask {
     def run() {
       try {
         refreshWebmailDnsCache()
@@ -250,7 +246,7 @@ class GuessWebmail {
   }
 
   /**
-   * Schedule timer for periodical webmails DNS refresh with {@link com.hitsoft.webmail_guess.WebmailGuess#refreshWebmailDnsCache refreshWebmailDnsCache} method.
+   * Schedule timer for periodical webmails DNS refresh with {@link com.hitsoft.guess.GuessWebmail#refreshWebmailDnsCache refreshWebmailDnsCache} method.
    * @param delay delay before first run in milliseconds
    * @param period period of periodical refresh in milliseconds
    * @return Timer object
@@ -261,7 +257,7 @@ class GuessWebmail {
     timer
   }
 
-  private def extractDomain(email: String) = {
+  private[guess] def extractDomain(email: String) = {
     val parts = email.split("@")
     if (parts.length == 2)
       parts(1)
@@ -274,14 +270,20 @@ class GuessWebmail {
   }
 
   def lookupServerByMx(domain: String): Option[String] = this.synchronized {
-    val domainHosts = dns.domainHosts.getOrElse(domain, mutable.Set.empty[String])
-    domainHosts.intersect(lookupServerBy.mx.keySet).headOption
+    val domainHosts = dns.domainHosts.getOrElse(domain, Set[String]())
+    domainHosts.intersect(lookupServerBy.mx.keySet).headOption match {
+      case None => None
+      case Some(host) => lookupServerBy.mx.get(host)
+    }
   }
 
   def lookupServerByIp(domain: String): Option[String] = this.synchronized {
     val domainHosts = dns.domainHosts.getOrElse(domain, Set[String]())
     val hostsIps = dns.hostIps.filterKeys(domainHosts.contains).values.flatten
-    hostsIps.toSet.intersect(lookupServerBy.ip.keySet).headOption
+    hostsIps.toSet.intersect(lookupServerBy.ip.keySet).headOption match {
+      case None => None
+      case Some(ip) => lookupServerBy.ip.get(ip)
+    }
   }
 
   /**
