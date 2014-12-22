@@ -34,6 +34,10 @@ class GuessWebmailTest extends Specification {
         resolve ip address ${Resolve().ip}
         resolve cname address ${Resolve().cname}
         resolve mx address ${Resolve().mx}
+
+    5. Check if email domain exists
+         from cache ${Exists().cache}
+         by resolving mx ${Exists().resolving}
     """
 
   case class Add() {
@@ -357,6 +361,26 @@ class GuessWebmailTest extends Specification {
     def mx = {
       val guess = new GuessWebmail()
       guess.resolveMx("litera5.ru") should_== Seq("mx.yandex.ru")
+    }
+  }
+
+  case class Exists() {
+    def cache = {
+      val guess = new GuessWebmail()
+      guess.loadWebmailDnsCache(Map(
+        "url" -> Map(
+          "domain" -> Map(
+            "host" -> Seq("ip")
+          )
+        )
+      ))
+      guess.domainExists("some@domain") must beTrue
+    }
+
+    def resolving = {
+      val guess = new GuessWebmail()
+      (guess.domainExists("smeagol74@gmail.com") must beTrue) and
+        (guess.domainExists("smeagol74@some.unexisting.domain") must beFalse)
     }
   }
 }

@@ -117,19 +117,21 @@ class GuessWebmail {
 
   private[guess] def refreshDomainDnsCache(domain: String): Unit = {
     val newHosts = resolveMxHosts(domain)
-    val hosts = this.synchronized {
-      dns.domainHosts.getOrElseUpdate(domain, mutable.Set.empty[String]) ++= newHosts
-    }
-    for (host <- hosts) {
-      val ips = resolveIP(host)
-      this.synchronized {
-        dns.hostIps.getOrElseUpdate(host, mutable.Set.empty[String]) ++= ips
+    if (newHosts.nonEmpty) {
+      val hosts = this.synchronized {
+        dns.domainHosts.getOrElseUpdate(domain, mutable.Set.empty[String]) ++= newHosts
       }
-    }
-    this.synchronized {
-      val urls = lookupServerBy.mx.filter(row => hosts.contains(row._1)).values.toSet
-      if (urls.size == 1) {
-        saveResolvedDomain(domain, urls.head)
+      for (host <- hosts) {
+        val ips = resolveIP(host)
+        this.synchronized {
+          dns.hostIps.getOrElseUpdate(host, mutable.Set.empty[String]) ++= ips
+        }
+      }
+      this.synchronized {
+        val urls = lookupServerBy.mx.filter(row => hosts.contains(row._1)).values.toSet
+        if (urls.size == 1) {
+          saveResolvedDomain(domain, urls.head)
+        }
       }
     }
   }
@@ -259,10 +261,12 @@ class GuessWebmail {
 
   private[guess] def extractDomain(email: String) = {
     val parts = email.split("@")
-    if (parts.length == 2)
-      parts(1)
-    else
-      email
+    (
+      if (parts.length == 2)
+        parts(1)
+      else
+        email
+      ).toLowerCase
   }
 
   def lookupServerByDomain(domain: String): Option[String] = this.synchronized {
@@ -300,6 +304,20 @@ class GuessWebmail {
         lookupServerByMx(domain).orElse(
           lookupServerByIp(domain)
         )
+    }
+  }
+
+  /**
+   * @param email address to check
+   * @return true if domain for email exists and has mx records
+   */
+  def domainExists(email: String): Boolean = this.synchronized {
+    val domain = extractDomain(email)
+    if (dns.domainHosts.contains(domain))
+      true
+    else {
+      refreshDomainDnsCache(domain)
+      dns.domainHosts.contains(domain)
     }
   }
 }
