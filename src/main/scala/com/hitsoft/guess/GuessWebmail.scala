@@ -375,19 +375,28 @@ object GuessWebmail {
   case class Server(url: String, domains: Seq[String])
 
   object servers {
-    val aol = Server("https://mail.aol.com", Seq("aol.com"))
-    val fastMail = Server("https://fastmail.com", Seq("fastmail.com"))
-    val gmail = Server("https://gmail.com", Seq("gmail.com"))
-    val gmx = Server("https://gmx.com", Seq("gmx.com"))
-    val inbox = Server("https://inbox.com", Seq("inbox.com"))
-    val hotmail = Server("https://hotmail.com", Seq("hotmail.com"))
-    val yahoo = Server("https://mail.yahoo.com", Seq("yahoo.com", "yahoo.com.ua", "yahoo.com.vn"))
-    val mailRu = Server("https://mail.ru", Seq("mail.ru", "inbox.ru", "list.ru", "bk.ru", "mail.ua"))
-    val yandex = Server("https://mail.yandex.ru", Seq("yandex.ru", "ya.ru", "narod.ru", "yandex.com", "yandex.kz", "yandex.by", "yandex.ua"))
-    val rambler = Server("https://mail.rambler.ru", Seq("rambler.ru"))
-    val ngs = Server("https://mail.ngs.ru", Seq("ngs.ru"))
+    // PERSONAL
+    val gmail       = Server("https://mail.google.com", Seq("gmail.com"))
+    val yandex      = Server("https://mail.yandex.ru", Seq("yandex.ru", "ya.ru", "narod.ru", "yandex.com", "yandex.kz", "yandex.by", "yandex.ua"))
+    val mailRu      = Server("https://mail.mail.ru", Seq("mail.ru", "bk.ru", "inbox.ru", "list.ru", "internet.ru", "mail.ua"))
+    val rambler     = Server("https://mail.rambler.ru", Seq("rambler.ru", "gazeta.ru"))
+    val lenta       = Server("https://mail.lenta.ru", Seq("lenta.ru"))
+    val hotmail     = Server("https://outlook.live.com", Seq("hotmail.com", "outlook.com", "live.com"))
+    val proton      = Server("https://mail.proton.me", Seq("proton.me", "protonmail.com"))
+    val tuta        = Server("https://tuta.com", Seq("tuta.com", "tutanota.com"))
+    val yahoo       = Server("https://mail.yahoo.com", Seq("yahoo.com", "yahoo.ru", "yahoo.com.ua", "yahoo.com.vn"))
+    val icloud      = Server("https://mail.apple.com", Seq("icloud.com", "me.com", "mac.com"))
+    val aol         = Server("https://mail.aol.com", Seq("aol.com"))
+    val fastMail    = Server("https://fastmail.com", Seq("fastmail.com"))
+    val gmx         = Server("https://gmx.com", Seq("gmx.com"))
+    val inbox       = Server("https://inbox.com", Seq("inbox.com"))
+    val ngs         = Server("https://mail.ngs.ru", Seq("ngs.ru"))
 
-    def all = Seq(aol, fastMail, gmail, gmx, inbox, hotmail, yahoo, mailRu, yandex, rambler, ngs)
+    def all = Seq(
+      gmail, yandex, mailRu, rambler, lenta,
+      hotmail, proton, tuta, yahoo, icloud,
+      aol, fastMail, gmx, inbox, ngs
+    )
   }
 
   def apply(servers: Seq[Server]) = new GuessWebmail().add(servers)
