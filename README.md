@@ -31,20 +31,13 @@ guesser.guess("user@gmail.com") match {
 ```
 
 ### 3. Java Compatibility
-The library provides native boolean helpers inside GuessResult for seamless integration into Java backends without dealing with Scala's companion object ($) syntax:
-
-```scala
-import com.hitsoft.guess.GuessWebmail
-object Guess {
-  val webmail = GuessWebmail(GuessWebmail.servers.all)
-}
-```
+The library provides native boolean helpers inside GuessResult for convenient use in Java projects without dealing with Scala's companion object ($) syntax.
 
 ```Java
 import com.hitsoft.guess.GuessWebmail.GuessResult;
 import com.hitsoft.guess.GuessWebmail.WithWebmail;
 
-GuessResult result = Guess.webmail().guess("user@gmail.com");
+GuessResult result = GuessWebmail(GuessWebmail.servers.all).guess("user@gmail.com");
 
 if (result.isNoMxRecords()) {
     // Handle invalid domain
