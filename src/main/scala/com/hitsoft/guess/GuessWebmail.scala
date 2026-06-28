@@ -290,20 +290,36 @@ class GuessWebmail {
     }
   }
 
+
+     *
+     *
+
   /**
-   * Check the specified email address against of configured webmails and returns the url of it's webmail if found something useful. Returns None if nothing matches
+   * Check the specified email address against of configured webmails and returns the url of it's webmail if found something useful. Returns one of GuessResult options
    * @param email email address or domain itself to guess it's webmail url
-   * @return url of webmail service or None
+   * @return GuessResult: WithWebmail(url) or NoWebmailHasMx or NoMxRecords
    */
-  def guess(email: String): Option[String] = {
+  def guess(email: String): GuessResult = {
     val domain = extractDomain(email)
+
+    // 1. Search in local cache
     lookupServerByDomain(domain) match {
-      case Some(result) => Some(result)
+      case Some(url) => WithWebmail(url)
       case None =>
+        // 2. If nothing found, renew DNS-cache and add information for this domain form MX entry
         refreshDomainDnsCache(domain)
-        lookupServerByMx(domain).orElse(
-          lookupServerByIp(domain)
-        )
+
+        // 3. If webmail server is found it returns url
+        lookupServerByMx(domain).orElse(lookupServerByIp(domain)) match {
+          case Some(url) => WithWebmail(url)
+          case None =>
+            // 4. Else check if this domain has MX
+            if (dns.domainHosts.contains(domain) && dns.domainHosts(domain).nonEmpty) {
+              NoWebmailHasMx
+            } else {
+              NoMxRecords
+            }
+        }
     }
   }
 
@@ -380,14 +396,17 @@ object GuessWebmail {
     val gmail = Server("https://gmail.com", Seq("gmail.com"))
     val gmx = Server("https://gmx.com", Seq("gmx.com"))
     val inbox = Server("https://inbox.com", Seq("inbox.com"))
-    val hotmail = Server("https://hotmail.com", Seq("hotmail.com"))
+    val hotmail = Server("https://outlook.live.com", Seq("hotmail.com", "outlook.com", "live.com"))
     val yahoo = Server("https://mail.yahoo.com", Seq("yahoo.com", "yahoo.com.ua", "yahoo.com.vn"))
-    val mailRu = Server("https://mail.ru", Seq("mail.ru", "inbox.ru", "list.ru", "bk.ru", "mail.ua"))
-    val yandex = Server("https://mail.yandex.ru", Seq("yandex.ru", "ya.ru", "narod.ru", "yandex.com", "yandex.kz", "yandex.by", "yandex.ua"))
-    val rambler = Server("https://mail.rambler.ru", Seq("rambler.ru"))
+    val mailRu = Server("https://mail.ru", Seq("mail.ru", "inbox.ru", "list.ru", "bk.ru", "internet.ru"))
+    val yandex = Server("https://mail.yandex.ru", Seq("yandex.ru", "ya.ru", "narod.ru", "yandex.com", "yandex.kz", "yandex.by"))
+    val rambler = Server("https://mail.rambler.ru", Seq("rambler.ru", "gazeta.ru", "lenta.ru"))
+    val proton = Server("https://mail.proton.me", Seq("proton.me", "protonmail.com"))
+    val tuta = Server("https://tuta.com", Seq("tuta.com", "tutanota.com"))
+    val icloud = Server("https://mail.apple.com", Seq("icloud.com", "me.com", "mac.com"))
     val ngs = Server("https://mail.ngs.ru", Seq("ngs.ru"))
 
-    def all = Seq(aol, fastMail, gmail, gmx, inbox, hotmail, yahoo, mailRu, yandex, rambler, ngs)
+    def all = Seq(aol, fastMail, gmail, gmx, inbox, hotmail, yahoo, mailRu, yandex, rambler, ngs, proton, tuta, icloud)
   }
 
   def apply(servers: Seq[Server]) = new GuessWebmail().add(servers)
@@ -398,4 +417,13 @@ object GuessWebmail {
 
   def apply(url: String, domain: String) = new GuessWebmail().add(url, domain)
 
+  sealed trait GuessResult {
+    // Helper methods for convenient use in Java projects
+    def isWithWebmail: Boolean = this.isInstanceOf[WithWebmail]
+    def isNoWebmailHasMx: Boolean = this == NoWebmailHasMx
+    def isNoMxRecords: Boolean = this == NoMxRecords
+  }
+  case class WithWebmail(url: String) extends GuessResult
+  case object NoWebmailHasMx extends GuessResult
+  case object NoMxRecords extends GuessResult
 }
