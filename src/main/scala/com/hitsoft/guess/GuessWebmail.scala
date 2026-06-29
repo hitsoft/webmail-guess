@@ -290,10 +290,6 @@ class GuessWebmail {
     }
   }
 
-
-     *
-     *
-
   /**
    * Check the specified email address against of configured webmails and returns the url of it's webmail if found something useful. Returns one of GuessResult options
    * @param email email address or domain itself to guess it's webmail url
